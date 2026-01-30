@@ -420,6 +420,7 @@ def chat(
     temperature: float = typer.Option(0.7, "--temperature", "-t", help="LLM temperature (0.0-1.0)"),
     max_tokens: int = typer.Option(4000, "--max-tokens", help="Maximum tokens per response"),
     no_rag: bool = typer.Option(False, "--no-rag", help="Disable RAG initially"),
+    mcp_server: Optional[list[str]] = typer.Option(None, "--mcp-server", help="MCP server to connect (format: name:command:args, e.g., filesystem:npx:-y,@modelcontextprotocol/server-filesystem,/tmp)"),
 ):
     """
     Start interactive chat with LLM.
@@ -427,6 +428,7 @@ def chat(
     Example:
         uv run ai-workbench chat --llm claude-3-5-sonnet-20241022 --rag-source ./vector-db
         uv run ai-workbench chat --llm ollama:llama2 --rag-source ./vector-db
+        uv run ai-workbench chat --llm claude-3-5-sonnet-20241022 --mcp-server filesystem:npx:-y,@modelcontextprotocol/server-filesystem,/tmp
     """
     from ai_workbench.llm.anthropic_client import AnthropicClient
     from ai_workbench.llm.ollama_client import OllamaClient
@@ -434,6 +436,7 @@ def chat(
     from ai_workbench.vector_stores.chroma_store import ChromaStore
     from ai_workbench.rag.retriever import RAGRetriever
     from ai_workbench.rag.context_builder import ContextBuilder
+    from ai_workbench.mcp.client import MCPClientManager
     from ai_workbench.chatbot.interactive import InteractiveChatbot
     from ai_workbench.config import get_config
 
@@ -509,6 +512,38 @@ def chat(
 
         console.print(f"[green]✓[/green] RAG initialized ({vector_store.count()} documents)")
 
+    # Initialize MCP client if requested
+    mcp_client = None
+    if mcp_server:
+        console.print(f"[bold blue]Initializing MCP client...[/bold blue]")
+        mcp_client = MCPClientManager()
+
+        for server_spec in mcp_server:
+            # Parse server specification: name:command:args
+            parts = server_spec.split(":", 2)
+            if len(parts) < 2:
+                console.print(f"[yellow]⚠[/yellow] Invalid MCP server spec: {server_spec}")
+                console.print("Format: name:command:args (e.g., filesystem:npx:-y,@modelcontextprotocol/server-filesystem,/tmp)")
+                continue
+
+            server_name = parts[0]
+            command = parts[1]
+            args = parts[2].split(",") if len(parts) > 2 else []
+
+            console.print(f"[dim]Connecting to {server_name}...[/dim]")
+            success = mcp_client.connect_server(
+                server_name=server_name,
+                command=command,
+                args=args,
+            )
+
+            if success:
+                tools = mcp_client.list_tools()
+                server_tools = [t for t in tools if t.server_name == server_name]
+                console.print(f"[green]✓[/green] Connected to {server_name} ({len(server_tools)} tools)")
+            else:
+                console.print(f"[yellow]⚠[/yellow] Failed to connect to {server_name}")
+
     # Start interactive chatbot
     console.print("[bold blue]Starting interactive chat...[/bold blue]\n")
 
@@ -516,6 +551,7 @@ def chat(
         llm=llm_client,
         retriever=retriever,
         context_builder=context_builder,
+        mcp_client=mcp_client,
         rag_enabled=rag_enabled,
         temperature=temperature,
         max_tokens=max_tokens,
@@ -537,6 +573,34 @@ def embed(
         uv run ai-workbench embed --input ./documents.txt --output ./embeddings.json
     """
     console.print("[yellow]Embedder module coming soon![/yellow]")
+
+
+@app.command()
+def web(
+    host: str = typer.Option("127.0.0.1", "--host", "-h", help="Host address to bind to"),
+    port: int = typer.Option(7860, "--port", "-p", help="Port number"),
+    share: bool = typer.Option(False, "--share", "-s", help="Enable Gradio share feature"),
+):
+    """
+    Launch the Gradio web interface.
+
+    Example:
+        uv run ai-workbench web
+        uv run ai-workbench web --port 8080
+        uv run ai-workbench web --share
+    """
+    from ai_workbench.web.app import launch_app
+
+    console.print(f"[bold blue]Starting AI Workbench Web UI...[/bold blue]")
+    console.print(f"[bold blue]Host:[/bold blue] {host}")
+    console.print(f"[bold blue]Port:[/bold blue] {port}")
+
+    if share:
+        console.print("[bold yellow]Share enabled - generating public link...[/bold yellow]")
+
+    console.print()
+
+    launch_app(host=host, port=port, share=share)
 
 
 @app.command()

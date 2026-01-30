@@ -6,7 +6,7 @@ import httpx
 import html2text
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Callable
 from pathlib import Path
 from dataclasses import dataclass, asdict
 from datetime import datetime
@@ -165,20 +165,36 @@ class WebScraper:
                 error=str(e),
             )
 
-    def scrape_batch(self, urls: List[str]) -> List[ScrapeResult]:
+    def scrape_batch(
+        self,
+        urls: List[str],
+        progress_callback: Optional[Callable[[float, str], None]] = None
+    ) -> List[ScrapeResult]:
         """
         Scrape multiple URLs.
 
         Args:
             urls: List of URLs to scrape
+            progress_callback: Optional callback for progress updates.
+                             Called with (progress: float 0-1, message: str)
 
         Returns:
             List of ScrapeResult objects
         """
         results = []
-        for url in urls:
+        total_urls = len(urls)
+
+        for i, url in enumerate(urls, 1):
             result = self.scrape(url)
             results.append(result)
+
+            # Update progress
+            if progress_callback:
+                progress = i / total_urls
+                status = "✓" if not result.error else "✗"
+                message = f"Scraped {i}/{total_urls} pages {status} {url[:60]}..."
+                progress_callback(progress, message)
+
         return results
 
     def scrape_from_crawler_output(self, crawler_output_path: Path) -> List[ScrapeResult]:

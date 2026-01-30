@@ -5,7 +5,7 @@ import json
 import httpx
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
-from typing import Set, List, Dict, Optional
+from typing import Set, List, Dict, Optional, Callable
 from pathlib import Path
 from dataclasses import dataclass, asdict
 
@@ -127,9 +127,13 @@ class WebCrawler:
                 error=str(e),
             )
 
-    def crawl(self) -> List[CrawlResult]:
+    def crawl(self, progress_callback: Optional[Callable[[float, str], None]] = None) -> List[CrawlResult]:
         """
         Start the crawl process.
+
+        Args:
+            progress_callback: Optional callback for progress updates.
+                             Called with (progress: float 0-1, message: str)
 
         Returns:
             List of CrawlResult objects
@@ -143,6 +147,12 @@ class WebCrawler:
             self.visited.add(url)
             result = self._crawl_page(url, depth)
             self.results.append(result)
+
+            # Update progress
+            if progress_callback:
+                progress = len(self.visited) / self.max_pages
+                message = f"Crawled {len(self.visited)}/{self.max_pages} pages (depth {depth}): {url[:60]}..."
+                progress_callback(progress, message)
 
         return self.results
 

@@ -4,7 +4,7 @@ Document processor for chunking scraped content into embeddable segments.
 import json
 import tiktoken
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Callable
 from dataclasses import dataclass
 
 
@@ -141,26 +141,39 @@ class DocumentProcessor:
 
         return chunks
 
-    def process_scraped_file(self, file_path: Path) -> List[DocumentChunk]:
+    def process_scraped_file(
+        self,
+        file_path: Path,
+        progress_callback: Optional[Callable[[float, str], None]] = None
+    ) -> List[DocumentChunk]:
         """
         Process entire scraped JSON file into chunks.
 
         Args:
             file_path: Path to scraped JSON file
+            progress_callback: Optional callback for progress updates.
+                             Called with (progress: float 0-1, message: str)
 
         Returns:
             List of all DocumentChunk objects from all pages
         """
         pages = self.load_scraped_json(file_path)
+        total_pages = len(pages)
 
         all_chunks = []
-        for doc_idx, page in enumerate(pages):
+        for doc_idx, page in enumerate(pages, 1):
             # Skip pages with errors
             if page.get("error"):
                 continue
 
-            chunks = self.process_document(page, doc_idx)
+            chunks = self.process_document(page, doc_idx - 1)
             all_chunks.extend(chunks)
+
+            # Update progress
+            if progress_callback:
+                progress = doc_idx / total_pages
+                message = f"Chunking document {doc_idx}/{total_pages} ({len(chunks)} chunks)"
+                progress_callback(progress, message)
 
         return all_chunks
 

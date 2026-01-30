@@ -27,6 +27,9 @@ dependencies = [
     # Utilities
     "tiktoken>=0.5.0",
     "prompt-toolkit>=3.0.0",
+    # Web UI
+    "gradio>=4.0.0",
+    "pytz>=2024.0",
 ]
 
 [project.scripts]

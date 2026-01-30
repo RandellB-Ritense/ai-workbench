@@ -15,6 +15,7 @@ from ai_workbench.llm.base import LLMProvider, Message
 from ai_workbench.llm.prompt_templates import PromptTemplates
 from ai_workbench.rag.retriever import RAGRetriever
 from ai_workbench.rag.context_builder import ContextBuilder
+from ai_workbench.mcp.client import MCPClientManager
 
 
 class InteractiveChatbot:
@@ -30,6 +31,7 @@ class InteractiveChatbot:
         llm: LLMProvider,
         retriever: Optional[RAGRetriever] = None,
         context_builder: Optional[ContextBuilder] = None,
+        mcp_client: Optional[MCPClientManager] = None,
         rag_enabled: bool = True,
         temperature: float = 0.7,
         max_tokens: int = 4000,
@@ -41,6 +43,7 @@ class InteractiveChatbot:
             llm: LLM provider instance
             retriever: Optional RAG retriever
             context_builder: Optional context builder
+            mcp_client: Optional MCP client manager
             rag_enabled: Whether RAG is initially enabled
             temperature: LLM temperature
             max_tokens: Maximum tokens per response
@@ -48,6 +51,7 @@ class InteractiveChatbot:
         self.llm = llm
         self.retriever = retriever
         self.context_builder = context_builder
+        self.mcp_client = mcp_client
         self.rag_enabled = rag_enabled and retriever is not None
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -155,6 +159,10 @@ class InteractiveChatbot:
             self._load_session(args)
         elif cmd == "/stats":
             self._show_stats()
+        elif cmd == "/mcp-tools" or cmd == "/mcp":
+            self._show_mcp_tools()
+        elif cmd == "/mcp-call":
+            self._call_mcp_tool(args)
         else:
             self.console.print(f"[red]Unknown command:[/red] {cmd}")
             self.console.print("[dim]Type /help for available commands[/dim]")
@@ -174,6 +182,8 @@ class InteractiveChatbot:
 [bold]/stats[/bold]        - Show session statistics
 [bold]/save <file>[/bold]  - Save conversation to file
 [bold]/load <file>[/bold]  - Load conversation from file
+[bold]/mcp-tools[/bold]    - Show available MCP tools
+[bold]/mcp-call[/bold] <server:tool> [args] - Call an MCP tool
 """
         self.console.print(Panel(help_text, border_style="cyan"))
 
@@ -247,6 +257,70 @@ class InteractiveChatbot:
 [bold]RAG:[/bold] {'Enabled' if stats['rag_enabled'] else 'Disabled'}
 """
         self.console.print(Panel(stats_text, border_style="cyan"))
+
+    def _show_mcp_tools(self):
+        """Show available MCP tools."""
+        if not self.mcp_client:
+            self.console.print("[yellow]MCP client not available[/yellow]")
+            return
+
+        tools = self.mcp_client.list_tools()
+        if not tools:
+            self.console.print("[yellow]No MCP tools available. Connect to an MCP server first.[/yellow]")
+            return
+
+        self.console.print(f"\n[bold cyan]Available MCP Tools ({len(tools)}):[/bold cyan]\n")
+
+        # Group tools by server
+        tools_by_server = {}
+        for tool in tools:
+            if tool.server_name not in tools_by_server:
+                tools_by_server[tool.server_name] = []
+            tools_by_server[tool.server_name].append(tool)
+
+        for server_name, server_tools in tools_by_server.items():
+            self.console.print(f"[bold]{server_name}:[/bold]")
+            for tool in server_tools:
+                self.console.print(f"  • [cyan]{server_name}:{tool.name}[/cyan]")
+                self.console.print(f"    {tool.description}")
+                if tool.input_schema:
+                    self.console.print(f"    [dim]Schema: {tool.input_schema}[/dim]")
+            self.console.print()
+
+    def _call_mcp_tool(self, args: str):
+        """Call an MCP tool."""
+        if not self.mcp_client:
+            self.console.print("[yellow]MCP client not available[/yellow]")
+            return
+
+        if not args:
+            self.console.print("[red]Usage: /mcp-call <server:tool> [json_arguments][/red]")
+            self.console.print("[dim]Example: /mcp-call filesystem:read_file {\"path\": \"/tmp/test.txt\"}[/dim]")
+            return
+
+        # Parse tool name and arguments
+        parts = args.split(maxsplit=1)
+        tool_name = parts[0]
+        arguments = {}
+
+        if len(parts) > 1:
+            import json
+            try:
+                arguments = json.loads(parts[1])
+            except json.JSONDecodeError as e:
+                self.console.print(f"[red]Invalid JSON arguments:[/red] {e}")
+                return
+
+        # Call the tool
+        with self.console.status(f"[dim]Calling {tool_name}...[/dim]"):
+            result = self.mcp_client.call_tool(tool_name, arguments)
+
+        if result.success:
+            self.console.print(f"\n[bold green]✓[/bold green] [cyan]{tool_name}[/cyan] succeeded:\n")
+            self.console.print(result.content)
+        else:
+            self.console.print(f"\n[bold red]✗[/bold red] [cyan]{tool_name}[/cyan] failed:")
+            self.console.print(f"[red]{result.error}[/red]")
 
     def _process_user_message(self, user_input: str):
         """Process and respond to user message."""

@@ -2,7 +2,7 @@
 Mistral AI embedder implementation.
 """
 import time
-from typing import List
+from typing import List, Optional, Callable
 from mistralai import Mistral
 from ai_workbench.embedders.base import Embedder
 
@@ -52,12 +52,18 @@ class MistralEmbedder(Embedder):
         """
         return self.embed_batch([text])[0]
 
-    def embed_batch(self, texts: List[str]) -> List[List[float]]:
+    def embed_batch(
+        self,
+        texts: List[str],
+        progress_callback: Optional[Callable[[float, str], None]] = None
+    ) -> List[List[float]]:
         """
         Embed multiple texts in batch(es).
 
         Args:
             texts: List of texts to embed
+            progress_callback: Optional callback for progress updates.
+                             Called with (progress: float 0-1, message: str)
 
         Returns:
             List of embedding vectors
@@ -66,12 +72,19 @@ class MistralEmbedder(Embedder):
             return []
 
         all_embeddings = []
+        total_batches = (len(texts) + self.batch_size - 1) // self.batch_size
 
         # Process in batches to respect API limits
-        for i in range(0, len(texts), self.batch_size):
+        for batch_idx, i in enumerate(range(0, len(texts), self.batch_size), 1):
             batch = texts[i : i + self.batch_size]
             batch_embeddings = self._embed_batch_with_retry(batch)
             all_embeddings.extend(batch_embeddings)
+
+            # Update progress
+            if progress_callback:
+                progress = batch_idx / total_batches
+                message = f"Embedding batch {batch_idx}/{total_batches} ({len(all_embeddings)}/{len(texts)} vectors)"
+                progress_callback(progress, message)
 
         return all_embeddings
 

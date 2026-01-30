@@ -124,6 +124,34 @@ class WorkbenchConfig(BaseSettings):
         description="Maximum tokens in chat response",
     )
 
+    # Web UI Configuration
+    web_host: str = Field(
+        default="127.0.0.1",
+        description="Web UI host address",
+    )
+    web_port: int = Field(
+        default=7860,
+        description="Web UI port",
+    )
+    web_share: bool = Field(
+        default=False,
+        description="Enable Gradio share feature",
+    )
+
+    # Job Queue Configuration
+    job_max_workers: int = Field(
+        default=2,
+        description="Maximum concurrent workers for job queue",
+    )
+    job_retention_days: int = Field(
+        default=7,
+        description="Days to retain completed jobs",
+    )
+    job_storage_path: Path = Field(
+        default=Path.home() / ".ai-workbench/jobs",
+        description="Directory for job storage",
+    )
+
     model_config = SettingsConfigDict(
         env_prefix="WORKBENCH_",
         env_file=".env",
