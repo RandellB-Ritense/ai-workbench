@@ -31,7 +31,7 @@ def validate_api_key(api_key: str, provider: str = "generic") -> Tuple[bool, str
 
     Args:
         api_key: API key to validate
-        provider: Provider name (anthropic, mistral, etc.)
+        provider: Provider name (mistral, etc.)
 
     Returns:
         Tuple of (is_valid, error_message)

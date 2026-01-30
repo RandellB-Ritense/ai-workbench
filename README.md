@@ -15,7 +15,7 @@ Built with [UV](https://github.com/astral-sh/uv) for blazingly fast dependency m
 - **Embeddings**: Generate vector embeddings using Mistral API
 - **Vector Store**: Persistent ChromaDB vector database
 - **RAG System**: Retrieval-Augmented Generation for document Q&A
-- **LLM Integration**: Claude (Anthropic) and Ollama (local models)
+- **LLM Integration**: Mistral (hosted) and Ollama (local models)
 - **Interactive Chatbot**: Rich REPL interface with streaming responses
 - **MCP Support**: Connect to Model Context Protocol servers for extended capabilities
 
@@ -79,7 +79,7 @@ The web interface includes five main tabs:
 
 **3. Chat**
 - Interactive AI chat with streaming responses
-- Support for Anthropic Claude and Ollama
+- Support for Mistral and Ollama
 - Optional RAG integration with your indexed documents
 - MCP server connections for tool use
 - Session save/load functionality
@@ -235,7 +235,7 @@ uv run ai-workbench test-rag --query "Your question" --rag-source <VECTOR_DB>
 
 ```bash
 # List available models
-uv run ai-workbench llm-list --provider anthropic
+uv run ai-workbench llm-list --provider mistral
 uv run ai-workbench llm-list --provider ollama
 
 # Interactive chat
@@ -279,7 +279,7 @@ ai-workbench/
 │   │   ├── retriever.py
 │   │   └── context_builder.py
 │   ├── llm/               # LLM clients (✓)
-│   │   ├── anthropic_client.py
+│   │   ├── mistral_client.py
 │   │   ├── ollama_client.py
 │   │   └── prompt_templates.py
 │   ├── chatbot/           # CLI chat interface (✓)
@@ -313,7 +313,7 @@ Alternatively, configure via environment variables or `.env` file:
 WORKBENCH_MISTRAL_API_KEY=your-mistral-key
 
 # Required for Claude models
-WORKBENCH_ANTHROPIC_API_KEY=your-anthropic-key
+WORKBENCH_MISTRAL_API_KEY=your-mistral-key
 
 # Optional: Ollama configuration (for local models)
 WORKBENCH_OLLAMA_BASE_URL=http://localhost:11434

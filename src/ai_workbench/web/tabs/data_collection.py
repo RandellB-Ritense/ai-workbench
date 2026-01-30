@@ -3,14 +3,17 @@ Data Collection tab - Web crawler and scraper interface.
 """
 import gradio as gr
 import json
+import shutil
+import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 
 from ...crawlers.web_crawler import WebCrawler
 from ...scrapers.web_scraper import WebScraper
+from ...project import project_paths_from_state
 
 
-def create_data_collection_tab() -> gr.Tab:
+def create_data_collection_tab(project_state: gr.State) -> gr.Tab:
     """
     Create the Data Collection tab.
 
@@ -58,11 +61,12 @@ def create_data_collection_tab() -> gr.Tab:
                 # Output directory
                 output_dir = gr.Textbox(
                     label="Output Directory",
-                    value=str(Path.home() / "ai-workbench-output"),
-                    info="Directory to save crawler results"
+                    value="Project required",
+                    info="Auto-set to the active project output folder",
+                    interactive=False,
                 )
 
-                crawl_button = gr.Button("Start Crawl", variant="primary", size="lg")
+                crawl_button = gr.Button("Start Crawl", variant="primary", size="lg", interactive=False)
 
             with gr.Column(scale=1):
                 # Status display
@@ -137,11 +141,12 @@ def create_data_collection_tab() -> gr.Tab:
 
                 scraper_output_dir = gr.Textbox(
                     label="Output Directory",
-                    value=str(Path.home() / "ai-workbench-output"),
-                    info="Directory to save scraped content"
+                    value="Project required",
+                    info="Auto-set to the active project output folder",
+                    interactive=False,
                 )
 
-                scrape_button = gr.Button("Start Scraping", variant="primary", size="lg")
+                scrape_button = gr.Button("Start Scraping", variant="primary", size="lg", interactive=False)
 
             with gr.Column(scale=1):
                 # Status display
@@ -166,8 +171,27 @@ def create_data_collection_tab() -> gr.Tab:
                 )
 
         # Event handlers
-        def start_crawl(url: str, depth: int, pages: int, same_dom: bool, output: str, progress=gr.Progress()):
+        def _prepare_download_path(file_path: Path) -> Path:
+            """Ensure the download path is within Gradio-allowed directories."""
+            resolved_path = file_path.resolve()
+            cwd = Path.cwd().resolve()
+            temp_dir = Path(tempfile.gettempdir()).resolve()
+
+            if resolved_path.is_relative_to(cwd) or resolved_path.is_relative_to(temp_dir):
+                return resolved_path
+
+            temp_copy = temp_dir / resolved_path.name
+            shutil.copy2(resolved_path, temp_copy)
+            return temp_copy
+
+        def start_crawl(url: str, depth: int, pages: int, same_dom: bool, _output: str, project: Optional[Dict], progress=gr.Progress()):
             """Execute crawler synchronously with progress tracking."""
+            if not project:
+                return {
+                    crawl_status: "❌ Error: Create a project before using tools",
+                    crawl_result_display: gr.update(visible=False),
+                    crawl_download_button: gr.update(visible=False)
+                }
             if not url:
                 return {
                     crawl_status: "❌ Error: URL is required",
@@ -197,7 +221,7 @@ def create_data_collection_tab() -> gr.Tab:
                 progress(0.9, desc=f"Crawled {len(results)} URLs, saving results...")
 
                 # Save results
-                output_dir_path = Path(output)
+                output_dir_path = project_paths_from_state(project).output_dir
                 output_dir_path.mkdir(parents=True, exist_ok=True)
 
                 import uuid
@@ -213,10 +237,11 @@ def create_data_collection_tab() -> gr.Tab:
                     "start_url": url
                 }
 
+                download_path = _prepare_download_path(output_file)
                 return {
                     crawl_status: f"✅ Complete! Crawled {len(results)} URLs\nSaved to: {output_file.name}",
                     crawl_result_display: gr.update(value=result_summary, visible=True),
-                    crawl_download_button: gr.update(value=str(output_file), visible=True)
+                    crawl_download_button: gr.update(value=str(download_path), visible=True)
                 }
 
             except Exception as e:
@@ -239,9 +264,15 @@ def create_data_collection_tab() -> gr.Tab:
                     scraper_urls_input: gr.update(visible=True)
                 }
 
-        def start_scrape(input_type, file_input, urls_input, ignore_links_val, ignore_images_val, max_urls_val, output, progress=gr.Progress()):
+        def start_scrape(input_type, file_input, urls_input, ignore_links_val, ignore_images_val, max_urls_val, _output, project: Optional[Dict], progress=gr.Progress()):
             """Execute scraper synchronously with progress tracking."""
             try:
+                if not project:
+                    return {
+                        scrape_status: "❌ Error: Create a project before using tools",
+                        scrape_result_display: gr.update(visible=False),
+                        scrape_download_button: gr.update(visible=False)
+                    }
                 # Get URLs based on input type
                 urls = []
                 if input_type == "Upload Crawler JSON":
@@ -297,7 +328,7 @@ def create_data_collection_tab() -> gr.Tab:
                 progress(0.95, desc=f"Scraped {len(results)} pages, saving results...")
 
                 # Save results
-                output_dir_path = Path(output)
+                output_dir_path = project_paths_from_state(project).output_dir
                 output_dir_path.mkdir(parents=True, exist_ok=True)
 
                 import uuid
@@ -319,10 +350,11 @@ def create_data_collection_tab() -> gr.Tab:
                     "output_file": str(output_file)
                 }
 
+                download_path = _prepare_download_path(output_file)
                 return {
                     scrape_status: f"✅ Complete! Scraped {successful} pages ({total_words:,} words)\n{failed} failed\nSaved to: {output_file.name}",
                     scrape_result_display: gr.update(value=result_summary, visible=True),
-                    scrape_download_button: gr.update(value=str(output_file), visible=True)
+                    scrape_download_button: gr.update(value=str(download_path), visible=True)
                 }
 
             except Exception as e:
@@ -333,9 +365,31 @@ def create_data_collection_tab() -> gr.Tab:
                 }
 
         # Connect events
+        def apply_project_paths(project: Optional[Dict]):
+            if not project:
+                return {
+                    output_dir: gr.update(value="Project required"),
+                    scraper_output_dir: gr.update(value="Project required"),
+                    crawl_button: gr.update(interactive=False),
+                    scrape_button: gr.update(interactive=False),
+                }
+            paths = project_paths_from_state(project)
+            return {
+                output_dir: gr.update(value=str(paths.output_dir)),
+                scraper_output_dir: gr.update(value=str(paths.output_dir)),
+                crawl_button: gr.update(interactive=True),
+                scrape_button: gr.update(interactive=True),
+            }
+
+        project_state.change(
+            fn=apply_project_paths,
+            inputs=[project_state],
+            outputs=[output_dir, scraper_output_dir, crawl_button, scrape_button],
+        )
+
         crawl_button.click(
             fn=start_crawl,
-            inputs=[crawler_url, max_depth, max_pages, same_domain, output_dir],
+            inputs=[crawler_url, max_depth, max_pages, same_domain, output_dir, project_state],
             outputs=[crawl_status, crawl_result_display, crawl_download_button]
         )
 
@@ -347,7 +401,7 @@ def create_data_collection_tab() -> gr.Tab:
 
         scrape_button.click(
             fn=start_scrape,
-            inputs=[scraper_input_type, scraper_file_input, scraper_urls_input, ignore_links, ignore_images, max_urls, scraper_output_dir],
+            inputs=[scraper_input_type, scraper_file_input, scraper_urls_input, ignore_links, ignore_images, max_urls, scraper_output_dir, project_state],
             outputs=[scrape_status, scrape_result_display, scrape_download_button]
         )
 

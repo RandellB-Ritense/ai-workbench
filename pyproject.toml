@@ -14,7 +14,6 @@ dependencies = [
     "pydantic-settings>=2.2.0",
     "html2text>=2024.2.26",
     # LLM Clients
-    "anthropic>=0.40.0",
     "ollama>=0.1.0",
     # Embeddings
     "mistralai>=1.0.0",

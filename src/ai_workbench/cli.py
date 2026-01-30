@@ -340,16 +340,27 @@ def test_rag(
 
 @app.command()
 def llm_list(
+<<<<<<< ours
     provider: List[str] = typer.Option(["all"], "--provider", "-p", help="Provider(s) to list (anthropic, ollama, all)"),
+=======
+    provider: List[str] = typer.Option(["all"], "--provider", "-p", help="Provider(s) to list (mistral, ollama, all)"),
+>>>>>>> theirs
 ):
     """
     List available LLM models.
 
     Example:
+<<<<<<< ours
         uv run ai-workbench llm-list --provider anthropic
         uv run ai-workbench llm-list --provider ollama
     """
     from ai_workbench.llm.anthropic_client import AnthropicClient
+=======
+        uv run ai-workbench llm-list --provider mistral
+        uv run ai-workbench llm-list --provider ollama
+    """
+    from ai_workbench.llm.mistral_client import MistralClient
+>>>>>>> theirs
     from ai_workbench.llm.ollama_client import OllamaClient
     from ai_workbench.config import get_config
 
@@ -358,6 +369,7 @@ def llm_list(
     # Determine which providers to list
     providers_to_check = []
     if "all" in provider:
+<<<<<<< ours
         providers_to_check = ["anthropic", "ollama"]
     else:
         providers_to_check = provider
@@ -382,6 +394,28 @@ def llm_list(
             models = client.list_models()
             for model in models:
                 console.print(f"    - {model['name']} ({model['id']})")
+=======
+        providers_to_check = ["mistral", "ollama"]
+    else:
+        providers_to_check = provider
+
+    # List Mistral models
+    if "mistral" in providers_to_check:
+        console.print("\n[bold cyan]Mistral Models:[/bold cyan]")
+
+        if config.mistral_api_key:
+            client = MistralClient(api_key=config.mistral_api_key)
+            models = client.list_models()
+
+            if not models:
+                console.print("  [yellow]No models returned by API[/yellow]")
+            else:
+                for model in models:
+                    console.print(f"\n  [bold]{model['name']}[/bold]")
+                    console.print(f"    ID: {model['id']}")
+        else:
+            console.print("  [yellow]API key not set (WORKBENCH_MISTRAL_API_KEY)[/yellow]")
+>>>>>>> theirs
 
     # List Ollama models
     if "ollama" in providers_to_check:
@@ -415,7 +449,11 @@ def llm_list(
 
 @app.command()
 def chat(
+<<<<<<< ours
     llm: str = typer.Option("claude-3-5-sonnet-20241022", "--llm", "-l", help="LLM model (claude-3-5-sonnet-20241022, ollama:llama2, etc.)"),
+=======
+    llm: str = typer.Option("mistral-large-latest", "--llm", "-l", help="LLM model (mistral-large-latest, ollama:llama2, etc.)"),
+>>>>>>> theirs
     rag_source: Optional[Path] = typer.Option(None, "--rag-source", "-r", help="Path to vector database for RAG"),
     temperature: float = typer.Option(0.7, "--temperature", "-t", help="LLM temperature (0.0-1.0)"),
     max_tokens: int = typer.Option(4000, "--max-tokens", help="Maximum tokens per response"),
@@ -426,11 +464,19 @@ def chat(
     Start interactive chat with LLM.
 
     Example:
+<<<<<<< ours
         uv run ai-workbench chat --llm claude-3-5-sonnet-20241022 --rag-source ./vector-db
         uv run ai-workbench chat --llm ollama:llama2 --rag-source ./vector-db
         uv run ai-workbench chat --llm claude-3-5-sonnet-20241022 --mcp-server filesystem:npx:-y,@modelcontextprotocol/server-filesystem,/tmp
     """
     from ai_workbench.llm.anthropic_client import AnthropicClient
+=======
+        uv run ai-workbench chat --llm mistral-large-latest --rag-source ./vector-db
+        uv run ai-workbench chat --llm ollama:llama2 --rag-source ./vector-db
+        uv run ai-workbench chat --llm mistral-large-latest --mcp-server filesystem:npx:-y,@modelcontextprotocol/server-filesystem,/tmp
+    """
+    from ai_workbench.llm.mistral_client import MistralClient
+>>>>>>> theirs
     from ai_workbench.llm.ollama_client import OllamaClient
     from ai_workbench.embedders.mistral_embedder import MistralEmbedder
     from ai_workbench.vector_stores.chroma_store import ChromaStore
@@ -459,6 +505,7 @@ def chat(
 
         console.print(f"[green]✓[/green] Connected to Ollama")
     else:
+<<<<<<< ours
         # Anthropic Claude
         if not config.anthropic_api_key:
             console.print("[bold red]✗[/bold red] Error: WORKBENCH_ANTHROPIC_API_KEY not set")
@@ -468,6 +515,17 @@ def chat(
 
         llm_client = AnthropicClient(api_key=config.anthropic_api_key, model=llm)
         console.print(f"[green]✓[/green] Connected to Anthropic")
+=======
+        # Mistral
+        if not config.mistral_api_key:
+            console.print("[bold red]✗[/bold red] Error: WORKBENCH_MISTRAL_API_KEY not set")
+            console.print("Set your Mistral API key:")
+            console.print("  export WORKBENCH_MISTRAL_API_KEY=your-key-here")
+            raise typer.Exit(1)
+
+        llm_client = MistralClient(api_key=config.mistral_api_key, model=llm)
+        console.print(f"[green]✓[/green] Connected to Mistral")
+>>>>>>> theirs
 
     # Initialize RAG if requested
     retriever = None

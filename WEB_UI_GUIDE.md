@@ -31,14 +31,24 @@ uv run ai-workbench web --share
 
 The web UI will open in your default browser at `http://127.0.0.1:7860`
 
-### First Time Setup
+### First Time Setup (Project-First)
 
-1. **Go to Configuration Tab**
-   - Enter your Anthropic API key (for Claude models)
-   - Enter your Mistral API key (for embeddings)
+1. **Create a Project (Required)**
+   - Click "Create Project"
+   - Enter a **Project Name**
+   - Choose a **Project Directory** on your local drive
+   - Click "Create Project"
+
+The selected project directory becomes the single root directory for the app.
+All files created by AI Workbench (crawler output, scraped data, indexes, logs, and derived artifacts) are stored inside that directory or its subdirectories.
+You cannot access any tools until a project is created and active.
+Once a project is active, any file path fields in the UI are auto-populated with locations inside the project directory, and you should not need to re-enter paths that belong to the project.
+
+2. **Go to Configuration Tab**
+   - Enter your Mistral API key (for hosted models and embeddings)
    - Click "Save API Keys"
 
-2. **Verify Setup**
+3. **Verify Setup**
    - Go to Configuration → System Info
    - Click "Refresh" under External Services
    - Verify: "✓ API key set" for both services
@@ -73,6 +83,7 @@ You're now ready to use all features!
    - When complete, download button appears
    - JSON file contains all discovered URLs
    - Use this for batch scraping
+   - Output files are stored inside your active project directory
 
 **Tips:**
 - Start small (depth=2, pages=50) to test
@@ -110,6 +121,7 @@ You're now ready to use all features!
 4. **Download Results**
    - JSON file with markdown content for each page
    - Use this to build vector indexes
+   - Output files are stored inside your active project directory
 
 **Tips:**
 - 100 URLs takes about 5-10 minutes
@@ -152,7 +164,7 @@ You're now ready to use all features!
    - Time: 2-5 minutes for 50 documents
 
 4. **Index Ready**
-   - Saved to `~/.ai-workbench/vector-stores/{name}/`
+   - Saved inside your project directory (e.g., `<project_dir>/vector-stores/{name}/`)
    - Available for RAG search and chat
 
 **Tips:**
@@ -213,13 +225,12 @@ You're now ready to use all features!
 
 **1. Initialize LLM**
 
-**Option A: Anthropic Claude**
-1. Select "Anthropic" provider
-2. Enter API key (or use saved from Config)
-3. Choose model (claude-3-5-sonnet-20241022 recommended)
-4. Set temperature (0.7 = balanced)
-5. Click "Initialize LLM"
-6. Wait for "✓ Anthropic initialized"
+**Option A: Mistral (Hosted)**
+1. Select "Mistral" provider
+2. Enter model name (e.g., mistral-large-latest)
+3. Set temperature (0.7 = balanced)
+4. Click "Initialize LLM"
+5. Wait for "✓ Mistral initialized"
 
 **Option B: Ollama (Local)**
 1. Start Ollama: `ollama serve`
@@ -268,7 +279,7 @@ You're now ready to use all features!
 4. **Manage Session**
    - **Clear History:** Reset conversation
    - **Save Session:** Export to JSON file
-   - Saved to: `~/ai-workbench-output/chat-sessions/`
+   - Saved inside your project directory (e.g., `<project_dir>/chat-sessions/`)
 
 **Tips:**
 - Initialize LLM before chatting
@@ -292,10 +303,9 @@ You're now ready to use all features!
 
 **Save Keys:**
 1. Go to Configuration → API Keys
-2. Enter Anthropic API key
-3. Enter Mistral API key
+2. Enter Mistral API key
 4. Click "Save API Keys"
-5. Keys saved to `~/.ai-workbench/.env`
+5. Keys saved inside your project directory (e.g., `<project_dir>/config/.env`)
 
 **Clear Keys:**
 1. Click "Clear Keys"
@@ -313,7 +323,7 @@ You're now ready to use all features!
 **Save Settings:**
 1. Adjust sliders to desired values
 2. Click "Save Settings"
-3. Saved to `~/.ai-workbench/config.json`
+3. Saved inside your project directory (e.g., `<project_dir>/config/config.json`)
 4. Applied to all future operations
 
 **Reset to Defaults:**
@@ -328,9 +338,10 @@ You're now ready to use all features!
 - Python version
 
 **Directories:**
-- Output directory path
-- Vector stores location
-- Job storage location
+- Active project root path
+- Output directory path (inside project)
+- Vector stores location (inside project)
+- Job storage location (inside project)
 
 **Storage Usage:**
 - Vector database count
@@ -339,7 +350,6 @@ You're now ready to use all features!
 - Click "Refresh" to update
 
 **External Services:**
-- Anthropic status
 - Mistral status
 - Ollama status
 - Click "Refresh" to check
@@ -419,7 +429,7 @@ uv run ai-workbench web --help
 
 1. Go to Vector Index tab
 2. Click "Refresh DBs"
-3. Check: `ls ~/.ai-workbench/vector-stores/`
+3. Check: `ls <project_dir>/vector-stores/`
 4. Build index if missing
 
 ### Chat Not Responding
@@ -477,20 +487,20 @@ uv run ai-workbench web --help
 
 ## File Locations
 
-All AI Workbench files are stored in standard locations:
+All AI Workbench files are stored inside the active project directory you selected:
 
 ```
-~/.ai-workbench/              # Configuration and data
-├── .env                      # API keys
-├── config.json              # Default settings
-└── vector-stores/           # Vector databases
-    ├── python-docs/
-    └── my-docs/
-
-~/ai-workbench-output/       # Output files
-├── crawl-xxxxx.json        # Crawler results
-├── scraped-xxxxx.json      # Scraper results
-└── chat-sessions/          # Saved chat sessions
+<project_dir>/               # Project root (single source of truth)
+├── config/                  # Project config and API keys
+│   ├── .env
+│   └── config.json
+├── vector-stores/           # Vector databases
+│   ├── python-docs/
+│   └── my-docs/
+├── outputs/                 # Tool outputs
+│   ├── crawl-xxxxx.json     # Crawler results
+│   └── scraped-xxxxx.json   # Scraper results
+└── chat-sessions/           # Saved chat sessions
     └── chat-session-xxxxx.json
 ```
 

@@ -5,13 +5,14 @@ import gradio as gr
 import json
 import platform
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from ...config import get_config, reload_config
+from ...project import project_paths_from_state
 from ..utils.validation import check_ollama_connection
 
 
-def create_config_tab() -> gr.Tab:
+def create_config_tab(project_state: gr.State) -> gr.Tab:
     """
     Create the Configuration tab.
 
@@ -31,25 +32,16 @@ def create_config_tab() -> gr.Tab:
                 gr.Markdown("Configure API keys for external services. Keys are stored in environment variables or config file.")
 
                 with gr.Column():
-                    anthropic_key_input = gr.Textbox(
-                        label="Anthropic API Key",
-                        type="password",
-                        placeholder="sk-ant-...",
-                        value=config.anthropic_api_key or "",
-                        info="For Claude models"
-                    )
-
                     mistral_key_input = gr.Textbox(
                         label="Mistral API Key",
                         type="password",
-                        placeholder="Enter Mistral API key",
+                        placeholder="Set in .env",
                         value=config.mistral_api_key or "",
-                        info="For embeddings"
+                        info="Read-only; set in .env",
+                        interactive=False
                     )
 
-                    with gr.Row():
-                        save_keys_btn = gr.Button("💾 Save API Keys", variant="primary")
-                        clear_keys_btn = gr.Button("🗑️ Clear Keys", variant="stop")
+                    refresh_keys_btn = gr.Button("🔄 Refresh Keys", size="sm")
 
                     keys_status = gr.Textbox(
                         label="Status",
@@ -61,10 +53,9 @@ def create_config_tab() -> gr.Tab:
                 gr.Markdown("---")
                 gr.Markdown(
                     """
-                    **Note:** API keys are saved to `~/.ai-workbench/.env` file.
-                    You can also set them as environment variables:
+                    **Note:** API keys are read from the `.env` file only.
+                    Set them in your `.env` file (or environment variables) and click Refresh:
                     ```bash
-                    export WORKBENCH_ANTHROPIC_API_KEY=sk-ant-...
                     export WORKBENCH_MISTRAL_API_KEY=...
                     ```
                     """
@@ -144,7 +135,7 @@ def create_config_tab() -> gr.Tab:
                     )
 
                 with gr.Row():
-                    save_settings_btn = gr.Button("💾 Save Settings", variant="primary")
+                    save_settings_btn = gr.Button("💾 Save Settings", variant="primary", interactive=False)
                     reset_settings_btn = gr.Button("🔄 Reset to Defaults", variant="secondary")
 
                 settings_status = gr.Textbox(
@@ -183,15 +174,27 @@ def create_config_tab() -> gr.Tab:
                 with gr.Group():
                     gr.Markdown("**Directories**")
 
+                    project_root_dir = gr.Textbox(
+                        label="Active Project Root",
+                        value="None",
+                        interactive=False
+                    )
+
                     output_dir = gr.Textbox(
                         label="Output Directory",
-                        value=str(config.default_output_dir),
+                        value="Project required",
                         interactive=False
                     )
 
                     vector_store_dir = gr.Textbox(
                         label="Vector Stores",
-                        value=str(config.vector_store_path),
+                        value="Project required",
+                        interactive=False
+                    )
+
+                    job_store_dir = gr.Textbox(
+                        label="Job Storage",
+                        value="Project required",
                         interactive=False
                     )
 
@@ -199,18 +202,21 @@ def create_config_tab() -> gr.Tab:
                 with gr.Group():
                     gr.Markdown("**Storage Usage**")
 
-                    def get_storage_info():
+                    def get_storage_info(project: Optional[Dict]):
                         """Get storage usage information."""
                         try:
+                            if not project:
+                                return "No project", "No project"
+                            paths = project_paths_from_state(project)
                             # Vector stores
                             vector_dbs = []
-                            if config.vector_store_path.exists():
-                                vector_dbs = [d.name for d in config.vector_store_path.iterdir() if d.is_dir()]
+                            if paths.vector_store_dir.exists():
+                                vector_dbs = [d.name for d in paths.vector_store_dir.iterdir() if d.is_dir()]
 
                             # Output files
                             output_files = 0
-                            if config.default_output_dir.exists():
-                                output_files = len(list(config.default_output_dir.glob("*")))
+                            if paths.output_dir.exists():
+                                output_files = len(list(paths.output_dir.glob("*")))
 
                             return (
                                 f"{len(vector_dbs)} databases",
@@ -221,13 +227,13 @@ def create_config_tab() -> gr.Tab:
 
                     vector_db_count = gr.Textbox(
                         label="Vector Databases",
-                        value=get_storage_info()[0],
+                        value=get_storage_info(None)[0],
                         interactive=False
                     )
 
                     output_files_count = gr.Textbox(
                         label="Output Files",
-                        value=get_storage_info()[1],
+                        value=get_storage_info(None)[1],
                         interactive=False
                     )
 
@@ -243,110 +249,43 @@ def create_config_tab() -> gr.Tab:
                         ollama_running, ollama_msg = check_ollama_connection(config.ollama_base_url)
                         ollama_status_text = "✓ Running" if ollama_running else f"✗ Not running: {ollama_msg}"
 
-                        # Check Anthropic (just check if key is set)
-                        anthropic_status_text = "✓ API key set" if config.anthropic_api_key else "✗ API key not set"
-
                         # Check Mistral
                         mistral_status_text = "✓ API key set" if config.mistral_api_key else "✗ API key not set"
 
-                        return anthropic_status_text, mistral_status_text, ollama_status_text
-
-                    anthropic_service_status = gr.Textbox(
-                        label="Anthropic",
-                        value=check_services()[0],
-                        interactive=False
-                    )
+                        return mistral_status_text, ollama_status_text
 
                     mistral_service_status = gr.Textbox(
                         label="Mistral",
-                        value=check_services()[1],
+                        value=check_services()[0],
                         interactive=False
                     )
 
                     ollama_service_status = gr.Textbox(
                         label="Ollama",
-                        value=check_services()[2],
+                        value=check_services()[1],
                         interactive=False
                     )
 
                     refresh_services_btn = gr.Button("🔄 Refresh", size="sm")
 
         # Event handlers
-        def save_api_keys(anthropic_key, mistral_key):
-            """Save API keys to config file."""
+        def refresh_api_keys():
+            """Reload API keys from .env."""
             try:
-                config_dir = Path.home() / ".ai-workbench"
-                config_dir.mkdir(parents=True, exist_ok=True)
-
-                env_file = config_dir / ".env"
-
-                # Read existing .env
-                env_vars = {}
-                if env_file.exists():
-                    with open(env_file, 'r') as f:
-                        for line in f:
-                            line = line.strip()
-                            if line and not line.startswith('#') and '=' in line:
-                                key, value = line.split('=', 1)
-                                env_vars[key.strip()] = value.strip()
-
-                # Update keys
-                if anthropic_key:
-                    env_vars['WORKBENCH_ANTHROPIC_API_KEY'] = anthropic_key
-                if mistral_key:
-                    env_vars['WORKBENCH_MISTRAL_API_KEY'] = mistral_key
-
-                # Write back
-                with open(env_file, 'w') as f:
-                    for key, value in env_vars.items():
-                        f.write(f"{key}={value}\n")
-
-                # Reload config
-                reload_config()
-
-                return {keys_status: gr.update(value="✓ API keys saved successfully", visible=True)}
-
-            except Exception as e:
-                return {keys_status: gr.update(value=f"✗ Error saving keys: {str(e)}", visible=True)}
-
-        def clear_api_keys():
-            """Clear API keys."""
-            try:
-                config_dir = Path.home() / ".ai-workbench"
-                env_file = config_dir / ".env"
-
-                if env_file.exists():
-                    # Read and filter out API keys
-                    env_vars = {}
-                    with open(env_file, 'r') as f:
-                        for line in f:
-                            line = line.strip()
-                            if line and not line.startswith('#') and '=' in line:
-                                key, value = line.split('=', 1)
-                                if 'API_KEY' not in key:
-                                    env_vars[key.strip()] = value.strip()
-
-                    # Write back
-                    with open(env_file, 'w') as f:
-                        for key, value in env_vars.items():
-                            f.write(f"{key}={value}\n")
-
-                # Reload config
-                reload_config()
-
+                cfg = reload_config()
                 return {
-                    anthropic_key_input: "",
-                    mistral_key_input: "",
-                    keys_status: gr.update(value="✓ API keys cleared", visible=True)
+                    mistral_key_input: cfg.mistral_api_key or "",
+                    keys_status: gr.update(value="✓ API keys refreshed from .env", visible=True),
                 }
-
             except Exception as e:
-                return {keys_status: gr.update(value=f"✗ Error: {str(e)}", visible=True)}
+                return {keys_status: gr.update(value=f"✗ Error refreshing keys: {str(e)}", visible=True)}
 
-        def save_settings(crawler_depth, crawler_pages, chunk_sz, chunk_ovlp, rag_k, rag_threshold, temp, max_tok):
+        def save_settings(crawler_depth, crawler_pages, chunk_sz, chunk_ovlp, rag_k, rag_threshold, temp, max_tok, project: Optional[Dict]):
             """Save default settings."""
             try:
-                config_dir = Path.home() / ".ai-workbench"
+                if not project:
+                    return {settings_status: gr.update(value="✗ Create a project before saving settings", visible=True)}
+                config_dir = project_paths_from_state(project).config_dir
                 config_dir.mkdir(parents=True, exist_ok=True)
 
                 config_file = config_dir / "config.json"
@@ -387,38 +326,54 @@ def create_config_tab() -> gr.Tab:
                 settings_status: gr.update(value="✓ Reset to defaults (not saved)", visible=True)
             }
 
-        def refresh_storage_info():
+        def refresh_storage_info(project: Optional[Dict]):
             """Refresh storage usage information."""
-            info = get_storage_info()
+            info = get_storage_info(project)
             return {
                 vector_db_count: info[0],
                 output_files_count: info[1]
+            }
+
+        def apply_project_paths(project: Optional[Dict]):
+            if not project:
+                return {
+                    project_root_dir: "None",
+                    output_dir: "Project required",
+                    vector_store_dir: "Project required",
+                    job_store_dir: "Project required",
+                    vector_db_count: "No project",
+                    output_files_count: "No project",
+                    save_settings_btn: gr.update(interactive=False),
+                }
+            paths = project_paths_from_state(project)
+            info = get_storage_info(project)
+            return {
+                project_root_dir: str(paths.root),
+                output_dir: str(paths.output_dir),
+                vector_store_dir: str(paths.vector_store_dir),
+                job_store_dir: str(paths.job_dir),
+                vector_db_count: info[0],
+                output_files_count: info[1],
+                save_settings_btn: gr.update(interactive=True),
             }
 
         def refresh_service_status():
             """Refresh service status."""
             status = check_services()
             return {
-                anthropic_service_status: status[0],
-                mistral_service_status: status[1],
-                ollama_service_status: status[2]
+                mistral_service_status: status[0],
+                ollama_service_status: status[1]
             }
 
         # Connect events
-        save_keys_btn.click(
-            fn=save_api_keys,
-            inputs=[anthropic_key_input, mistral_key_input],
-            outputs=[keys_status]
-        )
-
-        clear_keys_btn.click(
-            fn=clear_api_keys,
-            outputs=[anthropic_key_input, mistral_key_input, keys_status]
+        refresh_keys_btn.click(
+            fn=refresh_api_keys,
+            outputs=[mistral_key_input, keys_status]
         )
 
         save_settings_btn.click(
             fn=save_settings,
-            inputs=[crawler_max_depth, crawler_max_pages, chunk_size, chunk_overlap, rag_top_k, rag_score_threshold, chat_temperature, chat_max_tokens],
+            inputs=[crawler_max_depth, crawler_max_pages, chunk_size, chunk_overlap, rag_top_k, rag_score_threshold, chat_temperature, chat_max_tokens, project_state],
             outputs=[settings_status]
         )
 
@@ -429,12 +384,19 @@ def create_config_tab() -> gr.Tab:
 
         refresh_storage_btn.click(
             fn=refresh_storage_info,
+            inputs=[project_state],
             outputs=[vector_db_count, output_files_count]
         )
 
         refresh_services_btn.click(
             fn=refresh_service_status,
-            outputs=[anthropic_service_status, mistral_service_status, ollama_service_status]
+            outputs=[mistral_service_status, ollama_service_status]
+        )
+
+        project_state.change(
+            fn=apply_project_paths,
+            inputs=[project_state],
+            outputs=[project_root_dir, output_dir, vector_store_dir, job_store_dir, vector_db_count, output_files_count, save_settings_btn]
         )
 
     return tab

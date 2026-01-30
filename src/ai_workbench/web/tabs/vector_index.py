@@ -3,7 +3,7 @@ Vector Index tab - Build and test vector embeddings for RAG.
 """
 import gradio as gr
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, Dict
 import json
 
 from ...embedders.document_processor import DocumentProcessor
@@ -11,9 +11,10 @@ from ...embedders.mistral_embedder import MistralEmbedder
 from ...vector_stores.chroma_store import ChromaStore
 from ...rag.retriever import RAGRetriever
 from ...config import get_config
+from ...project import project_paths_from_state
 
 
-def create_vector_index_tab() -> gr.Tab:
+def create_vector_index_tab(project_state: gr.State) -> gr.Tab:
     """
     Create the Vector Index tab.
 
@@ -38,15 +39,7 @@ def create_vector_index_tab() -> gr.Tab:
                 index_output_name = gr.Textbox(
                     label="Index Name",
                     placeholder="my-docs-index",
-                    info="Name for the vector database (will be saved in ~/.ai-workbench/vector-stores/)"
-                )
-
-                mistral_api_key = gr.Textbox(
-                    label="Mistral API Key",
-                    type="password",
-                    placeholder="Enter your Mistral API key",
-                    value=config.mistral_api_key or "",
-                    info="Required for generating embeddings"
+                    info="Name for the vector database (saved inside the project)"
                 )
 
                 with gr.Row():
@@ -68,7 +61,7 @@ def create_vector_index_tab() -> gr.Tab:
                         info="Overlap between chunks"
                     )
 
-                build_button = gr.Button("Build Index", variant="primary", size="lg")
+                build_button = gr.Button("Build Index", variant="primary", size="lg", interactive=False)
 
             with gr.Column(scale=1):
                 # Status display
@@ -95,9 +88,11 @@ def create_vector_index_tab() -> gr.Tab:
         with gr.Row():
             with gr.Column(scale=2):
                 # Get list of available vector DBs
-                def get_vector_dbs():
+                def get_vector_dbs(project: Optional[Dict]):
                     """List available vector databases."""
-                    vector_store_path = config.vector_store_path
+                    if not project:
+                        return []
+                    vector_store_path = project_paths_from_state(project).vector_store_dir
                     if not vector_store_path.exists():
                         return []
 
@@ -107,12 +102,12 @@ def create_vector_index_tab() -> gr.Tab:
 
                 test_vector_db = gr.Dropdown(
                     label="Vector Database",
-                    choices=get_vector_dbs(),
+                    choices=get_vector_dbs(None),
                     info="Select a vector database to search",
                     allow_custom_value=False
                 )
 
-                refresh_dbs_button = gr.Button("🔄 Refresh List", size="sm")
+                refresh_dbs_button = gr.Button("🔄 Refresh List", size="sm", interactive=False)
 
                 test_query = gr.Textbox(
                     label="Search Query",
@@ -139,15 +134,7 @@ def create_vector_index_tab() -> gr.Tab:
                         info="Minimum similarity score"
                     )
 
-                test_mistral_key = gr.Textbox(
-                    label="Mistral API Key",
-                    type="password",
-                    placeholder="Enter your Mistral API key",
-                    value=config.mistral_api_key or "",
-                    info="Required for query embedding"
-                )
-
-                search_button = gr.Button("Search", variant="primary", size="lg")
+                search_button = gr.Button("Search", variant="primary", size="lg", interactive=False)
 
             with gr.Column(scale=1):
                 test_status = gr.Textbox(
@@ -167,8 +154,13 @@ def create_vector_index_tab() -> gr.Tab:
                 )
 
         # Event handlers
-        def start_build_index(file_input, output_name, api_key, chunk_sz, chunk_ovlp, progress=gr.Progress()):
+        def start_build_index(file_input, output_name, chunk_sz, chunk_ovlp, project: Optional[Dict], progress=gr.Progress()):
             """Execute build index synchronously with progress tracking."""
+            if not project:
+                return {
+                    build_status: "❌ Error: Create a project before using tools",
+                    build_result_display: gr.update(visible=False)
+                }
             if not file_input:
                 return {
                     build_status: "❌ Error: No file uploaded",
@@ -181,6 +173,7 @@ def create_vector_index_tab() -> gr.Tab:
                     build_result_display: gr.update(visible=False)
                 }
 
+            api_key = get_config().mistral_api_key
             if not api_key:
                 return {
                     build_status: "❌ Error: No API key provided",
@@ -199,7 +192,7 @@ def create_vector_index_tab() -> gr.Tab:
                 embedder = MistralEmbedder(api_key=api_key)
 
                 # Create output directory
-                output_path = config.vector_store_path / output_name
+                output_path = project_paths_from_state(project).vector_store_dir / output_name
                 output_path.mkdir(parents=True, exist_ok=True)
 
                 vector_store = ChromaStore(
@@ -277,8 +270,13 @@ def create_vector_index_tab() -> gr.Tab:
                     build_result_display: gr.update(visible=False)
                 }
 
-        def test_rag_search(db_name, query, top_k, score_threshold, api_key):
+        def test_rag_search(db_name, query, top_k, score_threshold, project: Optional[Dict]):
             """Execute RAG search."""
+            if not project:
+                return {
+                    test_status: "Error: Create a project before using tools",
+                    test_results_table: gr.update(visible=False)
+                }
             if not db_name:
                 return {
                     test_status: "Error: No database selected",
@@ -291,6 +289,7 @@ def create_vector_index_tab() -> gr.Tab:
                     test_results_table: gr.update(visible=False)
                 }
 
+            api_key = get_config().mistral_api_key
             if not api_key:
                 return {
                     test_status: "Error: No API key",
@@ -299,7 +298,7 @@ def create_vector_index_tab() -> gr.Tab:
 
             try:
                 # Initialize components
-                vector_db_path = config.vector_store_path / db_name
+                vector_db_path = project_paths_from_state(project).vector_store_dir / db_name
 
                 if not vector_db_path.exists():
                     return {
@@ -350,26 +349,48 @@ def create_vector_index_tab() -> gr.Tab:
                     test_results_table: gr.update(visible=False)
                 }
 
-        def refresh_vector_dbs():
+        def refresh_vector_dbs(project: Optional[Dict]):
             """Refresh the list of vector databases."""
-            return gr.update(choices=get_vector_dbs())
+            return gr.update(choices=get_vector_dbs(project))
+
+        def apply_project_paths(project: Optional[Dict]):
+            if not project:
+                return {
+                    test_vector_db: gr.update(choices=[], value=None),
+                    build_button: gr.update(interactive=False),
+                    refresh_dbs_button: gr.update(interactive=False),
+                    search_button: gr.update(interactive=False),
+                }
+            return {
+                test_vector_db: gr.update(choices=get_vector_dbs(project), value=None),
+                build_button: gr.update(interactive=True),
+                refresh_dbs_button: gr.update(interactive=True),
+                search_button: gr.update(interactive=True),
+            }
+
+        project_state.change(
+            fn=apply_project_paths,
+            inputs=[project_state],
+            outputs=[test_vector_db, build_button, refresh_dbs_button, search_button],
+        )
 
         # Connect events
         build_button.click(
             fn=start_build_index,
-            inputs=[index_scraped_file, index_output_name, mistral_api_key, chunk_size, chunk_overlap],
+            inputs=[index_scraped_file, index_output_name, chunk_size, chunk_overlap, project_state],
             outputs=[build_status, build_result_display]
         )
 
         # Test RAG events
         refresh_dbs_button.click(
             fn=refresh_vector_dbs,
+            inputs=[project_state],
             outputs=[test_vector_db]
         )
 
         search_button.click(
             fn=test_rag_search,
-            inputs=[test_vector_db, test_query, test_top_k, test_score_threshold, test_mistral_key],
+            inputs=[test_vector_db, test_query, test_top_k, test_score_threshold, project_state],
             outputs=[test_status, test_results_table]
         )
 

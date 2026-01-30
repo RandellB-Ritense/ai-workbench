@@ -5,11 +5,12 @@ import gradio as gr
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, Dict
+import httpx
 
 from ..utils.streaming import chat_stream_generator, save_chat_session, create_chat_history_from_session
 from ..utils.validation import validate_api_key, check_ollama_connection, validate_vector_db
-from ...llm.anthropic_client import AnthropicClient
+from ...llm.mistral_client import MistralClient
 from ...llm.ollama_client import OllamaClient
 from ...embedders.mistral_embedder import MistralEmbedder
 from ...vector_stores.chroma_store import ChromaStore
@@ -17,9 +18,10 @@ from ...rag.retriever import RAGRetriever
 from ...rag.context_builder import ContextBuilder
 from ...mcp.client import MCPClientManager
 from ...config import get_config
+from ...project import project_paths_from_state
 
 
-def create_chat_tab() -> gr.Tab:
+def create_chat_tab(project_state: gr.State) -> gr.Tab:
     """
     Create the Chat tab.
 
@@ -53,13 +55,14 @@ def create_chat_tab() -> gr.Tab:
                         placeholder="Type your message here...",
                         scale=9,
                         show_label=False,
-                        container=False
+                        container=False,
+                        interactive=False,
                     )
-                    send_btn = gr.Button("Send", variant="primary", scale=1)
+                    send_btn = gr.Button("Send", variant="primary", scale=1, interactive=False)
 
                 with gr.Row():
                     clear_btn = gr.Button("🗑️ Clear History", size="sm")
-                    save_btn = gr.Button("💾 Save Session", size="sm")
+                    save_btn = gr.Button("💾 Save Session", size="sm", interactive=False)
 
                 session_status = gr.Textbox(
                     label="Status",
@@ -77,31 +80,18 @@ def create_chat_tab() -> gr.Tab:
                     gr.Markdown("**LLM Provider**")
 
                     llm_provider = gr.Radio(
-                        choices=["Anthropic", "Ollama"],
-                        value="Anthropic",
+                        choices=["Mistral", "Ollama"],
+                        value="Mistral",
                         label="Provider",
                         show_label=False
                     )
 
-                    # Anthropic settings
-                    with gr.Column(visible=True) as anthropic_settings:
-                        anthropic_api_key = gr.Textbox(
-                            label="API Key",
-                            type="password",
-                            placeholder="sk-ant-...",
-                            value=config.anthropic_api_key or ""
-                        )
-
-                        anthropic_model = gr.Dropdown(
+                    # Mistral settings
+                    with gr.Column(visible=True) as mistral_settings:
+                        mistral_model = gr.Textbox(
                             label="Model",
-                            choices=[
-                                "claude-3-5-sonnet-20241022",
-                                "claude-3-5-haiku-20241022",
-                                "claude-3-opus-20240229",
-                                "claude-3-sonnet-20240229",
-                                "claude-3-haiku-20240307"
-                            ],
-                            value="claude-3-5-sonnet-20241022"
+                            value=config.default_llm_model,
+                            placeholder="mistral-large-latest"
                         )
 
                     # Ollama settings
@@ -144,7 +134,7 @@ def create_chat_tab() -> gr.Tab:
                         label="Max Tokens"
                     )
 
-                    init_llm_btn = gr.Button("Initialize LLM", variant="primary")
+                    init_llm_btn = gr.Button("Initialize LLM", variant="primary", interactive=False)
 
                 # RAG Settings
                 gr.Markdown("---")
@@ -157,9 +147,11 @@ def create_chat_tab() -> gr.Tab:
                         info="Use vector database for context"
                     )
 
-                    def get_vector_dbs():
+                    def get_vector_dbs(project: Optional[Dict]):
                         """List available vector databases."""
-                        vector_store_path = config.vector_store_path
+                        if not project:
+                            return []
+                        vector_store_path = project_paths_from_state(project).vector_store_dir
                         if not vector_store_path.exists():
                             return []
                         dbs = [d.name for d in vector_store_path.iterdir() if d.is_dir()]
@@ -167,28 +159,31 @@ def create_chat_tab() -> gr.Tab:
 
                     vector_db_dropdown = gr.Dropdown(
                         label="Vector Database",
-                        choices=get_vector_dbs(),
+                        choices=get_vector_dbs(None),
                         value=None
                     )
 
-                    refresh_dbs_btn = gr.Button("🔄 Refresh DBs", size="sm")
-
-                    mistral_api_key = gr.Textbox(
-                        label="Mistral API Key",
-                        type="password",
-                        placeholder="For RAG embeddings",
-                        value=config.mistral_api_key or ""
-                    )
+                    refresh_dbs_btn = gr.Button("🔄 Refresh DBs", size="sm", interactive=False)
 
                     rag_top_k = gr.Slider(
                         minimum=1,
                         maximum=10,
                         value=config.rag_top_k,
                         step=1,
-                        label="Top K Results"
+                        label="Top K Results",
+                        info="Number of documents to retrieve"
                     )
 
-                    init_rag_btn = gr.Button("Initialize RAG", variant="secondary")
+                    rag_score_threshold = gr.Slider(
+                        minimum=0.0,
+                        maximum=1.0,
+                        value=config.rag_score_threshold,
+                        step=0.05,
+                        label="Similarity Threshold",
+                        info="Minimum similarity score (0-1)"
+                    )
+
+                    init_rag_btn = gr.Button("Initialize RAG", variant="secondary", interactive=False)
 
                 # MCP Settings
                 gr.Markdown("---")
@@ -214,7 +209,7 @@ def create_chat_tab() -> gr.Tab:
                             info="Arguments for the command"
                         )
 
-                        connect_mcp_btn = gr.Button("Connect Server", variant="secondary")
+                        connect_mcp_btn = gr.Button("Connect Server", variant="secondary", interactive=False)
 
                     mcp_tools_display = gr.Dataframe(
                         headers=["Server", "Tool", "Description"],
@@ -250,15 +245,15 @@ def create_chat_tab() -> gr.Tab:
 
         # Event handlers
         def toggle_provider_settings(provider):
-            """Toggle between Anthropic and Ollama settings."""
-            if provider == "Anthropic":
+            """Toggle between Mistral and Ollama settings."""
+            if provider == "Mistral":
                 return {
-                    anthropic_settings: gr.update(visible=True),
+                    mistral_settings: gr.update(visible=True),
                     ollama_settings: gr.update(visible=False)
                 }
             else:
                 return {
-                    anthropic_settings: gr.update(visible=False),
+                    mistral_settings: gr.update(visible=False),
                     ollama_settings: gr.update(visible=True)
                 }
 
@@ -273,9 +268,14 @@ def create_chat_tab() -> gr.Tab:
                 }
 
             try:
-                client = OllamaClient(base_url=base_url)
-                models = client.list_models()
-                model_names = [m["name"] for m in models]
+                url = base_url.rstrip("/") + "/api/tags"
+                with httpx.Client(timeout=5.0) as client:
+                    response = client.get(url)
+                    response.raise_for_status()
+                    data = response.json()
+
+                models = data.get("models", [])
+                model_names = [m.get("name", "") for m in models if m.get("name")]
 
                 if not model_names:
                     return {
@@ -293,18 +293,21 @@ def create_chat_tab() -> gr.Tab:
                     ollama_status: f"Error: {str(e)}"
                 }
 
-        def initialize_llm(provider, anthropic_key, anthropic_model_name, ollama_url, ollama_model_name, current_client):
+        def initialize_llm(provider, mistral_model_name, ollama_url, ollama_model_name, current_client, project: Optional[Dict]):
             """Initialize the LLM client."""
             try:
-                if provider == "Anthropic":
+                if not project:
+                    return None, "✗ Create a project before initializing tools"
+                if provider == "Mistral":
+                    mistral_key = get_config().mistral_api_key
                     # Validate API key
-                    is_valid, error = validate_api_key(anthropic_key, "Anthropic")
+                    is_valid, error = validate_api_key(mistral_key, "Mistral")
                     if not is_valid:
                         return None, f"✗ {error}"
 
-                    # Initialize Anthropic client
-                    client = AnthropicClient(api_key=anthropic_key, model=anthropic_model_name)
-                    return client, f"✓ Anthropic initialized\nModel: {anthropic_model_name}"
+                    # Initialize Mistral client
+                    client = MistralClient(api_key=mistral_key, model=mistral_model_name)
+                    return client, f"✓ Mistral initialized\nModel: {mistral_model_name}"
 
                 else:  # Ollama
                     # Check connection
@@ -322,26 +325,30 @@ def create_chat_tab() -> gr.Tab:
             except Exception as e:
                 return None, f"✗ Error: {str(e)}"
 
-        def initialize_rag(db_name, mistral_key, current_retriever, current_context_builder):
+        def initialize_rag(db_name, top_k, score_threshold, current_retriever, current_context_builder, project: Optional[Dict]):
             """Initialize RAG components."""
             try:
+                if not project:
+                    return None, None, False, "✗ Create a project before initializing tools"
                 if not db_name:
-                    return None, None, "✗ Please select a vector database"
+                    return None, None, False, "✗ Please select a vector database"
 
                 # Validate API key
+                mistral_key = get_config().mistral_api_key
                 is_valid, error = validate_api_key(mistral_key, "Mistral")
                 if not is_valid:
-                    return None, None, f"✗ {error}"
+                    return None, None, False, f"✗ {error}"
 
                 # Validate vector DB
-                is_valid, error = validate_vector_db(db_name, config.vector_store_path)
+                vector_store_path = project_paths_from_state(project).vector_store_dir
+                is_valid, error = validate_vector_db(db_name, vector_store_path)
                 if not is_valid:
-                    return None, None, f"✗ {error}"
+                    return None, None, False, f"✗ {error}"
 
                 # Initialize components
                 embedder = MistralEmbedder(api_key=mistral_key)
 
-                vector_db_path = config.vector_store_path / db_name
+                vector_db_path = vector_store_path / db_name
                 vector_store = ChromaStore(
                     persist_directory=vector_db_path,
                     embedding_dimension=embedder.get_embedding_dimension()
@@ -350,8 +357,8 @@ def create_chat_tab() -> gr.Tab:
                 retriever = RAGRetriever(
                     embedder=embedder,
                     vector_store=vector_store,
-                    top_k=config.rag_top_k,
-                    score_threshold=config.rag_score_threshold
+                    top_k=int(top_k),
+                    score_threshold=float(score_threshold)
                 )
 
                 context_builder = ContextBuilder(
@@ -360,20 +367,38 @@ def create_chat_tab() -> gr.Tab:
                 )
 
                 doc_count = vector_store.count()
-                return retriever, context_builder, f"✓ RAG initialized\nDatabase: {db_name}\nDocuments: {doc_count}"
+                return retriever, context_builder, True, f"✓ RAG initialized and enabled\nDatabase: {db_name}\nDocuments: {doc_count}\nThreshold: {score_threshold:.2f}"
 
             except Exception as e:
-                return None, None, f"✗ Error: {str(e)}"
+                return None, None, False, f"✗ Error: {str(e)}"
 
-        def chat_response(message, history, llm_client, retriever, context_builder, rag_enabled_val, temp, max_tok):
+        def chat_response(message, history, llm_client, retriever, context_builder, rag_enabled_val, temp, max_tok, project: Optional[Dict]):
             """Handle chat message and stream response."""
+            if history is None:
+                history = []
+            if isinstance(message, list):
+                # Gradio may pass rich content lists
+                message = " ".join([str(item.get("text", "")) if isinstance(item, dict) else str(item) for item in message]).strip()
+            if not project:
+                history = history + [
+                    {"role": "user", "content": message},
+                    {"role": "assistant", "content": "Error: Create a project before using tools."},
+                ]
+                yield history
+                return
             if not llm_client:
-                history = history + [[message, "Error: LLM not initialized. Please initialize LLM first."]]
+                history = history + [
+                    {"role": "user", "content": message},
+                    {"role": "assistant", "content": "Error: LLM not initialized. Please initialize LLM first."},
+                ]
                 yield history
                 return
 
             if rag_enabled_val and not retriever:
-                history = history + [[message, "Error: RAG enabled but not initialized. Please initialize RAG first."]]
+                history = history + [
+                    {"role": "user", "content": message},
+                    {"role": "assistant", "content": "Error: RAG enabled but not initialized. Please initialize RAG first."},
+                ]
                 yield history
                 return
 
@@ -393,14 +418,16 @@ def create_chat_tab() -> gr.Tab:
             """Clear chat history."""
             return [], {session_status: gr.update(value="History cleared", visible=True)}
 
-        def save_session(history, provider, model_anthropic, model_ollama, temp, rag_enabled_val, db_name):
+        def save_session(history, provider, model_mistral, model_ollama, temp, rag_enabled_val, db_name, project: Optional[Dict]):
             """Save chat session to file."""
+            if not project:
+                return {session_status: gr.update(value="Create a project before saving sessions", visible=True)}
             if not history:
                 return {session_status: gr.update(value="No history to save", visible=True)}
 
             try:
                 # Determine model name
-                model_name = model_anthropic if provider == "Anthropic" else model_ollama
+                model_name = model_mistral if provider == "Mistral" else model_ollama
 
                 # Create session data
                 metadata = {
@@ -415,7 +442,7 @@ def create_chat_tab() -> gr.Tab:
                 session_data["timestamp"] = datetime.now().isoformat()
 
                 # Save to file
-                output_dir = Path.home() / "ai-workbench-output" / "chat-sessions"
+                output_dir = project_paths_from_state(project).chat_sessions_dir
                 output_dir.mkdir(parents=True, exist_ok=True)
 
                 timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -433,7 +460,7 @@ def create_chat_tab() -> gr.Tab:
         llm_provider.change(
             fn=toggle_provider_settings,
             inputs=[llm_provider],
-            outputs=[anthropic_settings, ollama_settings]
+            outputs=[mistral_settings, ollama_settings]
         )
 
         refresh_ollama_btn.click(
@@ -444,25 +471,53 @@ def create_chat_tab() -> gr.Tab:
 
         init_llm_btn.click(
             fn=initialize_llm,
-            inputs=[llm_provider, anthropic_api_key, anthropic_model, ollama_base_url, ollama_model, llm_client_state],
+            inputs=[llm_provider, mistral_model, ollama_base_url, ollama_model, llm_client_state, project_state],
             outputs=[llm_client_state, llm_status]
         )
 
+        def refresh_vector_dbs(project: Optional[Dict]):
+            return gr.update(choices=get_vector_dbs(project))
+
+        project_state.change(
+            fn=refresh_vector_dbs,
+            inputs=[project_state],
+            outputs=[vector_db_dropdown],
+        )
+
+        def apply_project_state(project: Optional[Dict]):
+            enabled = bool(project)
+            return {
+                msg_input: gr.update(interactive=enabled),
+                send_btn: gr.update(interactive=enabled),
+                save_btn: gr.update(interactive=enabled),
+                init_llm_btn: gr.update(interactive=enabled),
+                init_rag_btn: gr.update(interactive=enabled),
+                refresh_dbs_btn: gr.update(interactive=enabled),
+                connect_mcp_btn: gr.update(interactive=enabled),
+            }
+
+        project_state.change(
+            fn=apply_project_state,
+            inputs=[project_state],
+            outputs=[msg_input, send_btn, save_btn, init_llm_btn, init_rag_btn, refresh_dbs_btn, connect_mcp_btn],
+        )
+
         refresh_dbs_btn.click(
-            fn=lambda: gr.update(choices=get_vector_dbs()),
+            fn=refresh_vector_dbs,
+            inputs=[project_state],
             outputs=[vector_db_dropdown]
         )
 
         init_rag_btn.click(
             fn=initialize_rag,
-            inputs=[vector_db_dropdown, mistral_api_key, retriever_state, context_builder_state],
-            outputs=[retriever_state, context_builder_state, rag_status]
+            inputs=[vector_db_dropdown, rag_top_k, rag_score_threshold, retriever_state, context_builder_state, project_state],
+            outputs=[retriever_state, context_builder_state, rag_enabled, rag_status]
         )
 
         # Chat interaction
         msg_input.submit(
             fn=chat_response,
-            inputs=[msg_input, chatbot, llm_client_state, retriever_state, context_builder_state, rag_enabled, temperature, max_tokens],
+            inputs=[msg_input, chatbot, llm_client_state, retriever_state, context_builder_state, rag_enabled, temperature, max_tokens, project_state],
             outputs=[chatbot]
         ).then(
             fn=lambda: "",
@@ -471,7 +526,7 @@ def create_chat_tab() -> gr.Tab:
 
         send_btn.click(
             fn=chat_response,
-            inputs=[msg_input, chatbot, llm_client_state, retriever_state, context_builder_state, rag_enabled, temperature, max_tokens],
+            inputs=[msg_input, chatbot, llm_client_state, retriever_state, context_builder_state, rag_enabled, temperature, max_tokens, project_state],
             outputs=[chatbot]
         ).then(
             fn=lambda: "",
@@ -485,14 +540,16 @@ def create_chat_tab() -> gr.Tab:
 
         save_btn.click(
             fn=save_session,
-            inputs=[chatbot, llm_provider, anthropic_model, ollama_model, temperature, rag_enabled, vector_db_dropdown],
+            inputs=[chatbot, llm_provider, mistral_model, ollama_model, temperature, rag_enabled, vector_db_dropdown, project_state],
             outputs=[session_status]
         )
 
         # MCP events
-        def connect_mcp_server(server_name, command, args_str, current_mcp_client):
+        def connect_mcp_server(server_name, command, args_str, current_mcp_client, project: Optional[Dict]):
             """Connect to an MCP server."""
             try:
+                if not project:
+                    return current_mcp_client, gr.update(), "✗ Create a project before using tools"
                 if not server_name:
                     return current_mcp_client, gr.update(), f"✗ Server name required"
 
@@ -554,7 +611,7 @@ def create_chat_tab() -> gr.Tab:
 
         connect_mcp_btn.click(
             fn=connect_mcp_server,
-            inputs=[mcp_server_name, mcp_command, mcp_args, mcp_client_state],
+            inputs=[mcp_server_name, mcp_command, mcp_args, mcp_client_state, project_state],
             outputs=[mcp_client_state, mcp_tools_display, mcp_status]
         )
 

@@ -27,7 +27,7 @@ class LLMProvider(ABC):
     Abstract base class for LLM providers.
 
     Provides a unified interface for different LLM APIs
-    (Anthropic Claude, Ollama, etc.)
+    (Mistral, Ollama, etc.)
     """
 
     @abstractmethod

@@ -25,7 +25,7 @@ TAB_DESCRIPTIONS = {
     "chat": """
         **Chat** provides an interactive AI assistant with optional RAG and MCP tools.
 
-        - Choose your LLM provider (Anthropic or Ollama)
+        - Choose your LLM provider (Mistral or Ollama)
         - Optionally enable RAG to use your indexed documents
         - Connect MCP servers for additional capabilities
 
@@ -100,8 +100,8 @@ ERROR_MESSAGES = {
 # Success messages
 SUCCESS_MESSAGES = {
     "job_submitted": "Job submitted successfully! Monitor progress in the Jobs tab.",
-    "api_key_saved": "API keys saved successfully to ~/.ai-workbench/.env",
-    "settings_saved": "Settings saved successfully to ~/.ai-workbench/config.json",
+    "api_key_saved": "API keys saved successfully inside your project directory",
+    "settings_saved": "Settings saved successfully inside your project directory",
     "connection_success": "Connected successfully!",
     "operation_complete": "Operation completed successfully!",
 }
@@ -173,7 +173,7 @@ HELP_SECTIONS = {
         "title": "How to Chat with AI",
         "content": """
             **Setup:**
-            1. Choose your LLM provider (Anthropic or Ollama)
+            1. Choose your LLM provider (Mistral or Ollama)
             2. Enter API key or configure Ollama
             3. Select a model
             4. Click "Initialize LLM"
@@ -218,7 +218,7 @@ FAQ = {
         - Works offline
         - Faster for repeated use
 
-        However, Anthropic's Claude models are generally more capable.
+        Mistral models are used for hosted completions in this app.
     """,
 
     "How long does indexing take?": """

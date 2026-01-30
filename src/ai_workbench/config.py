@@ -45,20 +45,16 @@ class WorkbenchConfig(BaseSettings):
     )
 
     # LLM Configuration
-    anthropic_api_key: Optional[str] = Field(
-        default=None,
-        description="Anthropic API key for Claude models",
-    )
     ollama_base_url: str = Field(
         default="http://localhost:11434",
         description="Ollama API base URL",
     )
     default_llm_provider: str = Field(
-        default="anthropic",
-        description="Default LLM provider (anthropic, ollama)",
+        default="mistral",
+        description="Default LLM provider (mistral, ollama)",
     )
     default_llm_model: str = Field(
-        default="claude-3-5-sonnet-20241022",
+        default="mistral-large-latest",
         description="Default LLM model name",
     )
 
